@@ -32,19 +32,6 @@ pub fn small_thread_rng() -> SmallThreadRng {
     SmallThreadRng
 }
 
-pub fn capacity_coefficient(h: usize) -> f64 {
-    if h < COEFF_CACHE.len() {
-        COEFF_CACHE[h]
-    } else {
-        (2.0_f64 / 3.0_f64).powi(h as i32)
-    }
-}
-
-// h:0 is the first compactor, h:1 is the second, etc.
-pub fn capacity(k: usize, h: usize) -> usize {
-    ((k as f64) * capacity_coefficient(h)).ceil() as usize
-}
-
 static COEFF_CACHE: &[f64] = &[
     1.0,
     0.6666666666666666,
@@ -67,6 +54,29 @@ static COEFF_CACHE: &[f64] = &[
     0.0006766394845988641,
 ];
 
+fn capacity_coefficient(h: usize) -> f64 {
+    if h < COEFF_CACHE.len() {
+        COEFF_CACHE[h]
+    } else {
+        (2.0_f64 / 3.0_f64).powi(h as i32)
+    }
+}
+
+// h:0 is the first compactor, h:1 is the second, etc.
+pub fn capacity(k: usize, h: usize) -> usize {
+    ((k as f64) * capacity_coefficient(h)).ceil() as usize
+}
+
+pub fn insertion_sort<T: PartialEq + PartialOrd>(run: &mut Vec<T>) {
+    for i in 1..run.len() {
+        let mut j = i;
+        while j > 0 && run[j - 1] > run[j] {
+            run.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+}
+
 /// KLL sketch data structure for approximate quantile estimation.
 ///
 /// The sketch maintains a hierarchy of compactors that progressively
@@ -81,10 +91,6 @@ pub struct Sketch<T> {
     /// Larger k provides better accuracy but uses more memory.
     /// Error is roughly O(1/k) for rank queries.
     pub(crate) k: usize,
-
-    /// Current height of the compactor hierarchy (number of levels).
-    /// Increases logarithmically with the number of items seen.
-    pub(crate) h: usize,
 
     /// Current total number of items stored across all compactors.
     /// Used to trigger compaction when reaching max_size.
@@ -110,7 +116,6 @@ where
         Sketch {
             compactors: vec![new_compactor],
             k,
-            h: 1, // Start with one level
             size,
             max_size,
         }
@@ -118,13 +123,13 @@ where
 
     fn grow(&mut self) {
         // Pre-allocate capacity for the new compactor based on its expected size
-        // Calculate capacity for the new level (h will be incremented after push)
-        self.compactors
-            .push(Compactor::with_capacity(capacity(self.k, self.h)));
-        self.h = self.compactors.len();
+        self.compactors.push(Compactor::with_capacity(capacity(
+            self.k,
+            self.compactors.len(),
+        )));
 
         self.max_size = 0;
-        for h in 0..self.h {
+        for h in 0..self.compactors.len() {
             self.max_size += capacity(self.k, h);
         }
     }
@@ -149,42 +154,25 @@ where
                 // If this compactor has reached its capacity
                 if self.compactors[h].len() >= capacity(self.k, h) {
                     // Add a new level if we're compacting the highest level
-                    if h + 1 >= self.h {
+                    if h >= self.compactors.len() - 1 {
                         self.grow();
                     }
+                    assert!(self.compactors.len() > h);
 
                     // Track sizes before compaction for accurate size update
-                    let prev_h = self.compactors[h].len();
-                    let prev_h1 = if h + 1 < self.compactors.len() {
-                        self.compactors[h + 1].len()
-                    } else {
-                        0
-                    };
-
-                    // Get or create the destination compactor for promoted items
-                    let dst = if h + 1 < self.compactors.len() {
-                        self.compactors[h + 1].clone()
-                    } else {
-                        // Pre-allocate capacity for the new compactor
-                        let expected_capacity = capacity(self.k, h + 1);
-                        Compactor::with_capacity(expected_capacity)
-                    };
+                    let current_prev = self.compactors[h].len();
+                    let next_prev = self.compactors[h + 1].len();
 
                     // Perform the actual compaction: sort, then randomly keep ~half
+                    let dst = std::mem::take(&mut self.compactors[h + 1]);
                     let compacted = self.compactors[h].compact(dst);
-                    if h + 1 < self.compactors.len() {
-                        self.compactors[h + 1] = compacted;
-                    }
+                    self.compactors[h + 1] = compacted;
 
                     // Update total size based on items removed and added
-                    let new_h = self.compactors[h].len();
-                    let new_h1 = if h + 1 < self.compactors.len() {
-                        self.compactors[h + 1].len()
-                    } else {
-                        0
-                    };
+                    let current_post = self.compactors[h].len();
+                    let next_post = self.compactors[h + 1].len();
 
-                    self.size = self.size - prev_h + new_h - prev_h1 + new_h1;
+                    self.size = self.size + current_post + next_post - current_prev - next_prev;
 
                     // Stop if we've freed enough space
                     if self.size < self.max_size {
@@ -203,14 +191,12 @@ where
     }
 
     pub fn merge(&mut self, t: &Sketch<T>) {
-        while self.h < t.h {
+        while self.compactors.len() < t.compactors.len() {
             self.grow();
         }
 
         for (h, c) in t.compactors.iter().enumerate() {
-            if h < self.compactors.len() {
-                self.compactors[h].extend(c.iter().cloned());
-            }
+            self.compactors[h].extend(c.iter().cloned());
         }
 
         self.update_size();
@@ -267,7 +253,7 @@ where
             total_w += c.len() as f64 * weight;
         }
 
-        q.sort_by(|a, b| a.v.partial_cmp(&b.v).unwrap_or(Ordering::Equal));
+        q.sort_unstable_by(|a, b| a.v.partial_cmp(&b.v).unwrap_or(Ordering::Equal));
 
         let mut cur_w = 0.0;
         for quantile in &mut q {
@@ -299,7 +285,7 @@ where
         }
 
         // Sort by value
-        values.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
+        values.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
 
         // Find min and max
         let min_val = values[0].0;
@@ -562,6 +548,12 @@ impl fmt::Display for Sketch<i32> {
 #[derive(Clone)]
 pub(crate) struct Compactor<T>(pub Vec<T>);
 
+impl<T> Default for Compactor<T> {
+    fn default() -> Self {
+        Compactor(Vec::new())
+    }
+}
+
 impl<T> Compactor<T>
 where
     T: PartialOrd + Clone,
@@ -599,22 +591,24 @@ where
     /// while reducing the number of stored items by approximately half.
     fn compact(&mut self, mut dst: Compactor<T>) -> Compactor<T> {
         let l = self.0.len();
-
-        // Nothing to compact if we have 0 or 1 items
         if l == 0 || l == 1 {
             return dst;
-        } else if l == 2 {
+        }
+
+        let mut current_items = std::mem::take(&mut self.0);
+
+        // Nothing to compact if we have 0 or 1 items
+        if current_items.len() == 2 {
             // Special case for 2 items: just ensure they're sorted
-            if self.0[0] > self.0[1] {
-                self.0.swap(0, 1);
+            if current_items[0] > current_items[1] {
+                current_items.swap(0, 1);
             }
-        } else if l > 100 {
+        } else if current_items.len() > 100 {
             // Use standard sort for large arrays (more efficient)
-            self.0
-                .sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+            current_items.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         } else {
             // Use insertion sort for small arrays (better cache locality)
-            self.insertion_sort();
+            insertion_sort(&mut current_items);
         }
 
         // Ensure destination has enough capacity for the promoted items
@@ -628,33 +622,17 @@ where
         // This ensures each item has 50% chance of being promoted
         let offs = small_thread_rng().random_range(0..2) as usize;
 
-        // Process pairs from the end, promoting one item from each pair
-        while self.0.len() >= 2 {
-            let l = self.0.len() - 2;
-            dst.0.push(self.0[l + offs].clone());
-            self.0.truncate(l);
+        // Drain the items, promoting every second item starting from `offs`
+        // If the number of items is odd, the last item will always be kept
+        if current_items.len() % 2 == 1 {
+            self.0.push(current_items.pop().unwrap());
         }
+
+        current_items.drain(offs..).step_by(2).for_each(|item| {
+            dst.push(item);
+        });
 
         dst
-    }
-
-    pub fn insertion_sort(&mut self) {
-        let l = self.0.len();
-        for i in 1..l {
-            let v = self.0[i].clone();
-            let mut j = i;
-            while j > 0 && self.0[j - 1] > v {
-                j -= 1;
-            }
-            if j == i {
-                continue;
-            }
-            let temp = self.0[i].clone();
-            for k in (j + 1..=i).rev() {
-                self.0[k] = self.0[k - 1].clone();
-            }
-            self.0[j] = temp;
-        }
     }
 }
 
@@ -671,22 +649,36 @@ impl<T> CDF<T>
 where
     T: PartialOrd + Clone,
 {
+    /// Find the quantile for a given value x.
+    /// Returns the fraction of values less than or equal to x.
     pub fn quantile(&self, x: T) -> f64 {
+        // Find the rightmost position where value <= x
         let idx = self
             .0
             .binary_search_by(|q| {
-                if q.v < x {
-                    Ordering::Less
-                } else {
-                    Ordering::Greater
+                // Use match to handle all cases properly
+                match q.v.partial_cmp(&x) {
+                    Some(Ordering::Less) | Some(Ordering::Equal) => Ordering::Less,
+                    Some(Ordering::Greater) => Ordering::Greater,
+                    None => Ordering::Greater, // Handle NaN by treating as greater
                 }
             })
             .unwrap_or_else(|e| e);
 
+        // idx is the position where we'd insert a value > x
+        // So idx-1 is the last position with value <= x
         if idx == 0 { 0.0 } else { self.0[idx - 1].q }
     }
 
+    /// Query the CDF for a specific quantile p (0.0 to 1.0).
+    /// Returns the smallest value whose cumulative probability is >= p.
     pub fn query(&self, p: f64) -> T {
+        // Handle edge cases
+        if self.0.is_empty() {
+            panic!("Cannot query empty CDF");
+        }
+
+        // Find the first position where cumulative probability >= p
         let idx = self
             .0
             .binary_search_by(|q| {
@@ -698,7 +690,9 @@ where
             })
             .unwrap_or_else(|e| e);
 
+        // idx is the first position with cumulative probability >= p
         if idx == self.0.len() {
+            // p is greater than all cumulative probabilities, return the last value
             self.0[self.0.len() - 1].v.clone()
         } else {
             self.0[idx].v.clone()
@@ -791,9 +785,9 @@ mod tests {
                         }
                     }
                     let mut expected = c.0.clone();
-                    c.insertion_sort();
+                    insertion_sort(&mut c.0);
 
-                    expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    expected.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
                     for (i, (&actual, &expect)) in c.0.iter().zip(expected.iter()).enumerate() {
                         assert_eq!(actual, expect, "failed to sort at index {}", i);
@@ -1112,7 +1106,7 @@ mod tests {
 
         // Total elements in all compactors should be bounded
         let total_stored: usize = sketch.compactors.iter().map(|c| c.len()).sum();
-        let h = sketch.h;
+        let h = sketch.compactors.len();
 
         // Theoretical bound is O(k * log(n/k))
         let expected_max = (k as f64 * (h as f64) * 2.0) as usize;
@@ -1170,7 +1164,7 @@ mod tests {
         c.push(3.0);
         c.push(1.0);
 
-        c.insertion_sort();
+        insertion_sort(&mut c.0);
 
         let expected = vec![1.0, 3.0, 3.0, 5.0, 7.0];
         assert_eq!(c.0, expected);
@@ -1235,7 +1229,7 @@ mod tests {
 
             // Check accuracy at this point
             let cdf = sketch.cdf();
-            exact_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            exact_values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
             for &q in &[0.25, 0.5, 0.75] {
                 let estimated = cdf.query(q);
@@ -1287,7 +1281,7 @@ mod tests {
             exact.push(v);
         }
 
-        exact.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        exact.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
         let cdf = sketch.cdf();
 
         // For small dataset, should be very accurate
@@ -1341,6 +1335,8 @@ mod tests {
         for i in 0..1000 {
             sketch.update(i);
         }
+
+        println!("Sketch: {}", sketch);
 
         assert_eq!(sketch.count(), 1000);
 
@@ -1563,5 +1559,147 @@ mod tests {
 
         println!("\nString sketch visualization:");
         println!("{}", string_sketch);
+    }
+
+    #[test]
+    fn test_cdf_binary_search_edge_cases() {
+        // Test 1: Simple uniform distribution
+        let mut sketch = Sketch::new(100);
+        for i in 0..100 {
+            sketch.update(i as f64);
+        }
+        let cdf = sketch.cdf();
+
+        // Test quantile function
+        println!("\n=== Testing quantile() function ===");
+
+        // Test exact matches
+        let q50 = cdf.quantile(50.0);
+        println!("quantile(50.0) = {}", q50);
+
+        // Test values not in the data
+        let q25_5 = cdf.quantile(25.5);
+        println!("quantile(25.5) = {}", q25_5);
+
+        // Test boundaries
+        let q_neg = cdf.quantile(-1.0);
+        println!("quantile(-1.0) = {}", q_neg);
+        assert_eq!(q_neg, 0.0, "Values less than min should return 0.0");
+
+        let q_large = cdf.quantile(200.0);
+        println!("quantile(200.0) = {}", q_large);
+
+        // Test query function
+        println!("\n=== Testing query() function ===");
+
+        // Test exact quantile matches
+        let v_at_0 = cdf.query(0.0);
+        println!("query(0.0) = {}", v_at_0);
+
+        let v_at_0_5 = cdf.query(0.5);
+        println!("query(0.5) = {}", v_at_0_5);
+
+        let v_at_1 = cdf.query(1.0);
+        println!("query(1.0) = {}", v_at_1);
+
+        // Test quantiles not exactly in the data
+        let v_at_0_33 = cdf.query(0.33);
+        println!("query(0.33) = {}", v_at_0_33);
+    }
+
+    #[test]
+    fn test_cdf_with_duplicates() {
+        let mut sketch = Sketch::new(50);
+
+        // Add duplicates
+        for _ in 0..100 {
+            sketch.update(1.0);
+        }
+        for _ in 0..100 {
+            sketch.update(2.0);
+        }
+        for _ in 0..100 {
+            sketch.update(3.0);
+        }
+
+        let cdf = sketch.cdf();
+
+        println!("\n=== Testing with duplicates ===");
+
+        // Test quantile of exact duplicate values
+        let q1 = cdf.quantile(1.0);
+        let q2 = cdf.quantile(2.0);
+        let q3 = cdf.quantile(3.0);
+
+        println!("quantile(1.0) = {}", q1);
+        println!("quantile(2.0) = {}", q2);
+        println!("quantile(3.0) = {}", q3);
+
+        // These should be approximately 0.33, 0.66, and 1.0
+        assert!(
+            q1 > 0.2 && q1 < 0.4,
+            "quantile(1.0) should be ~0.33, got {}",
+            q1
+        );
+        assert!(
+            q2 > 0.5 && q2 < 0.8,
+            "quantile(2.0) should be ~0.66, got {}",
+            q2
+        );
+        assert!(q3 > 0.9, "quantile(3.0) should be ~1.0, got {}", q3);
+
+        // Test query at boundaries between duplicates
+        let v_at_0_33 = cdf.query(0.33);
+        let v_at_0_34 = cdf.query(0.34);
+        let v_at_0_66 = cdf.query(0.66);
+        let v_at_0_67 = cdf.query(0.67);
+
+        println!("query(0.33) = {}", v_at_0_33);
+        println!("query(0.34) = {}", v_at_0_34);
+        println!("query(0.66) = {}", v_at_0_66);
+        println!("query(0.67) = {}", v_at_0_67);
+    }
+
+    #[test]
+    fn test_cdf_binary_search_correctness() {
+        // Create a small exact dataset to verify binary search behavior
+        let mut sketch = Sketch::new(1000); // Large k to minimize compression
+
+        // Add values 1 through 10
+        for i in 1..=10 {
+            sketch.update(i as f64);
+        }
+
+        let cdf = sketch.cdf();
+
+        println!("\n=== Testing binary search correctness ===");
+
+        // Test quantile function - should handle <= correctly
+        // quantile(x) should return the fraction of values <= x
+
+        // For value 5 in [1,2,3,4,5,6,7,8,9,10], we expect 5/10 = 0.5
+        let q5 = cdf.quantile(5.0);
+        println!("quantile(5.0) = {} (expected ~0.5)", q5);
+        assert!((q5 - 0.5).abs() < 0.1, "quantile(5.0) should be ~0.5");
+
+        // For value 5.5 (not in data), we still expect 5/10 = 0.5
+        let q5_5 = cdf.quantile(5.5);
+        println!("quantile(5.5) = {} (expected ~0.5)", q5_5);
+        assert!((q5_5 - 0.5).abs() < 0.1, "quantile(5.5) should be ~0.5");
+
+        // Test query function - should return smallest value with quantile >= p
+        let v_at_0_5 = cdf.query(0.5);
+        println!("query(0.5) = {} (expected 5 or 6)", v_at_0_5);
+        assert!(
+            v_at_0_5 >= 5.0 && v_at_0_5 <= 6.0,
+            "query(0.5) should return 5 or 6"
+        );
+
+        // Test exact quantile match behavior
+        let v_at_0_1 = cdf.query(0.1);
+        println!("query(0.1) = {} (expected 1)", v_at_0_1);
+
+        let v_at_0_9 = cdf.query(0.9);
+        println!("query(0.9) = {} (expected 9)", v_at_0_9);
     }
 }
