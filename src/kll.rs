@@ -52,6 +52,115 @@ static COEFF_CACHE: &[f64] = &[
     0.0015224388403474443,
     0.0010149592268982961,
     0.0006766394845988641,
+    0.00045109298973257606,
+    0.0003007286598217174,
+    0.00020048577321447823,
+    0.0001336571821429855,
+    8.910478809532365e-05,
+    5.9403192063549106e-05,
+    3.960212804236607e-05,
+    2.640141869491071e-05,
+    1.760094579660714e-05,
+    1.1733963864404761e-05,
+    7.82264257626984e-06,
+    5.21509505084656e-06,
+    3.4767300338977064e-06,
+    2.3178200225984708e-06,
+    1.5452133483989804e-06,
+    1.030142232265987e-06,
+    6.867614881773246e-07,
+    4.5784099211821645e-07,
+    3.0522732807881095e-07,
+    2.0348488538587396e-07,
+    1.356565902572493e-07,
+    9.04377268381662e-08,
+    6.02918178921108e-08,
+    4.019454526140719e-08,
+    2.67963635076048e-08,
+    1.78642423384032e-08,
+    1.1909494892268798e-08,
+    7.939663261512532e-09,
+    5.293108841008354e-09,
+    3.528739227338903e-09,
+    2.352492818225935e-09,
+    1.5683285454839568e-09,
+    1.0455523636559712e-09,
+    6.970349091039809e-10,
+    4.646899394026538e-10,
+    3.097932929351026e-10,
+    2.0652886195673503e-10,
+    1.3768590797115669e-10,
+    9.179060531410445e-11,
+    6.119373687606963e-11,
+    4.0795824584046424e-11,
+    2.7197216389364282e-11,
+    1.813147759290952e-11,
+    1.2087651728606347e-11,
+    8.058434485737563e-12,
+    5.372289657158376e-12,
+    3.581526438105584e-12,
+    2.3876842920703892e-12,
+    1.5917895280469262e-12,
+    1.0611930186979508e-12,
+    7.074620124653005e-13,
+    4.716413416435336e-13,
+    3.1442756109568906e-13,
+    2.0961837406379272e-13,
+    1.3974558270919513e-13,
+    9.316372180613009e-14,
+    6.21091478707534e-14,
+    4.140609858050226e-14,
+    2.760406572033484e-14,
+    1.8402710480223226e-14,
+    1.226847365348215e-14,
+    8.178982435654766e-15,
+    5.452654957103177e-15,
+    3.635103304735452e-15,
+    2.423402203156968e-15,
+    1.615601468771312e-15,
+    1.0770676458475411e-15,
+    7.180450972316942e-16,
+    4.786967314877961e-16,
+    3.191311543251974e-16,
+    2.1275410288346492e-16,
+    1.418360685889766e-16,
+    9.455737905931773e-17,
+    6.303825270621183e-17,
+    4.2025501804141215e-17,
+    2.801700120276081e-17,
+    1.8678000801840538e-17,
+    1.2452000534560357e-17,
+    8.301333689706904e-18,
+    5.534222459804603e-18,
+    3.6894816398697355e-18,
+    2.459654426579824e-18,
+    1.6397696177198825e-18,
+    1.0931797451465883e-18,
+    7.287864967643922e-19,
+    4.858576645095947e-19,
+    3.239051096730632e-19,
+    2.1593673978204208e-19,
+    1.439578265213614e-19,
+    9.597188434757427e-20,
+    6.398125623171617e-20,
+    4.2654170821144116e-20,
+    2.843611388076274e-20,
+    1.8957409253841826e-20,
+    1.263827283589455e-20,
+    8.4255152239297e-21,
+    5.6170101492864665e-21,
+    3.744673432857645e-21,
+    2.4964489552384296e-21,
+    1.6642993034922866e-21,
+    1.1095328689948576e-21,
+    7.39688579329905e-22,
+    4.931257195532699e-22,
+    3.2875047970218e-22,
+    2.1916698646812e-22,
+    1.4611132431208001e-22,
+    9.740754954138666e-23,
+    6.493836636092445e-23,
+    4.3292244240616286e-23,
 ];
 
 fn capacity_coefficient(h: usize) -> f64 {
@@ -81,6 +190,7 @@ pub fn insertion_sort<T: PartialEq + PartialOrd>(run: &mut Vec<T>) {
 ///
 /// The sketch maintains a hierarchy of compactors that progressively
 /// compress the data stream while preserving quantile accuracy guarantees.
+#[derive(Clone)]
 pub struct Sketch<T> {
     /// Hierarchy of compactors, where compactor[i] has weight 2^i.
     /// Each compactor stores sorted samples from the input stream.
@@ -1701,5 +1811,407 @@ mod tests {
 
         let v_at_0_9 = cdf.query(0.9);
         println!("query(0.9) = {} (expected 9)", v_at_0_9);
+    }
+
+    #[test]
+    fn test_merge_extensive() {
+        // Test 1: Basic merge with non-overlapping ranges
+        println!("\n=== Test 1: Basic merge with non-overlapping ranges ===");
+        let mut sketch1 = Sketch::new(100);
+        let mut sketch2 = Sketch::new(100);
+
+        for i in 0..1000 {
+            sketch1.update(i as f64);
+        }
+        for i in 1000..2000 {
+            sketch2.update(i as f64);
+        }
+
+        let count1 = sketch1.count();
+        let count2 = sketch2.count();
+        sketch1.merge(&sketch2);
+
+        assert_eq!(
+            sketch1.count(),
+            count1 + count2,
+            "Count should be sum after merge"
+        );
+
+        // Verify quantiles
+        let cdf = sketch1.cdf();
+        let median = cdf.query(0.5);
+        assert!(
+            (median - 1000.0).abs() < 50.0,
+            "Median should be around 1000, got {}",
+            median
+        );
+
+        // Test 2: Merge with overlapping ranges
+        println!("\n=== Test 2: Merge with overlapping ranges ===");
+        let mut sketch1 = Sketch::new(100);
+        let mut sketch2 = Sketch::new(100);
+
+        for i in 0..1500 {
+            sketch1.update(i as f64);
+        }
+        for i in 500..2000 {
+            sketch2.update(i as f64);
+        }
+
+        sketch1.merge(&sketch2);
+        let cdf = sketch1.cdf();
+
+        // The median should still be around 1000 since we have overlap
+        let median = cdf.query(0.5);
+        println!("Median after overlapping merge: {}", median);
+        assert!(
+            (median - 1000.0).abs() < 100.0,
+            "Median should be around 1000"
+        );
+
+        // Test 3: Merge sketches with different heights
+        println!("\n=== Test 3: Merge sketches with different heights ===");
+        let mut small_sketch = Sketch::new(50);
+        let mut large_sketch = Sketch::new(50);
+
+        // Small sketch with few items
+        for i in 0..100 {
+            small_sketch.update(i as f64);
+        }
+
+        // Large sketch with many items (will have more compactor levels)
+        for i in 0..10000 {
+            large_sketch.update(i as f64);
+        }
+
+        let small_height = small_sketch.compactors.len();
+        let large_height = large_sketch.compactors.len();
+        println!(
+            "Small sketch height: {}, Large sketch height: {}",
+            small_height, large_height
+        );
+        assert!(
+            large_height > small_height,
+            "Large sketch should have more levels"
+        );
+
+        // Merge small into large
+        large_sketch.merge(&small_sketch);
+        assert_eq!(large_sketch.count(), 10100);
+
+        // Merge large into small (opposite direction)
+        let mut small_sketch2 = Sketch::new(50);
+        for i in 0..100 {
+            small_sketch2.update(i as f64);
+        }
+        let mut large_sketch2 = Sketch::new(50);
+        for i in 0..10000 {
+            large_sketch2.update(i as f64);
+        }
+
+        small_sketch2.merge(&large_sketch2);
+        assert_eq!(small_sketch2.count(), 10100);
+        assert!(
+            small_sketch2.compactors.len() >= large_height,
+            "Small sketch should grow to accommodate large sketch"
+        );
+    }
+
+    #[test]
+    fn test_merge_empty_sketches() {
+        println!("\n=== Testing merge with empty sketches ===");
+
+        // Test merging empty into non-empty
+        let mut sketch1 = Sketch::new(100);
+        let empty_sketch = Sketch::<f64>::new(100);
+
+        for i in 0..1000 {
+            sketch1.update(i as f64);
+        }
+
+        let count_before = sketch1.count();
+        sketch1.merge(&empty_sketch);
+        assert_eq!(
+            sketch1.count(),
+            count_before,
+            "Count should not change when merging empty sketch"
+        );
+
+        // Test merging non-empty into empty
+        let mut empty_sketch2 = Sketch::new(100);
+        let mut sketch2 = Sketch::new(100);
+        for i in 0..1000 {
+            sketch2.update(i as f64);
+        }
+
+        empty_sketch2.merge(&sketch2);
+        assert_eq!(
+            empty_sketch2.count(),
+            sketch2.count(),
+            "Empty sketch should have same count as merged sketch"
+        );
+
+        // Test merging two empty sketches
+        let mut empty1 = Sketch::<f64>::new(100);
+        let empty2 = Sketch::<f64>::new(100);
+        empty1.merge(&empty2);
+        assert_eq!(
+            empty1.count(),
+            0,
+            "Merging two empty sketches should result in empty sketch"
+        );
+    }
+
+    #[test]
+    fn test_merge_multiple_sketches() {
+        println!("\n=== Testing multiple sequential merges ===");
+
+        let mut base_sketch = Sketch::new(100);
+        let mut total_count = 0;
+
+        // Create and merge 10 sketches
+        for batch in 0..10 {
+            let mut batch_sketch = Sketch::new(100);
+            for i in (batch * 1000)..((batch + 1) * 1000) {
+                batch_sketch.update(i as f64);
+            }
+            total_count += batch_sketch.count();
+            base_sketch.merge(&batch_sketch);
+        }
+
+        assert_eq!(
+            base_sketch.count(),
+            total_count,
+            "Total count should match sum of all batches"
+        );
+
+        // Verify distribution is still accurate
+        let cdf = base_sketch.cdf();
+        let median = cdf.query(0.5);
+        assert!(
+            (median - 5000.0).abs() < 200.0,
+            "Median should be around 5000, got {}",
+            median
+        );
+
+        let q25 = cdf.query(0.25);
+        assert!(
+            (q25 - 2500.0).abs() < 200.0,
+            "25th percentile should be around 2500, got {}",
+            q25
+        );
+
+        let q75 = cdf.query(0.75);
+        assert!(
+            (q75 - 7500.0).abs() < 200.0,
+            "75th percentile should be around 7500, got {}",
+            q75
+        );
+    }
+
+    #[test]
+    fn test_merge_accuracy_preservation() {
+        println!("\n=== Testing accuracy preservation after merge ===");
+
+        let mut rng = small_thread_rng();
+        let normal = Normal::new(100.0, 20.0).unwrap();
+
+        // Create two sketches with same distribution
+        let mut sketch1 = Sketch::new(200);
+        let mut sketch2 = Sketch::new(200);
+
+        for _ in 0..10000 {
+            sketch1.update(normal.sample(&mut rng));
+            sketch2.update(normal.sample(&mut rng));
+        }
+
+        // Create a reference sketch with all data
+        let mut reference_sketch = Sketch::new(200);
+        for _ in 0..20000 {
+            reference_sketch.update(normal.sample(&mut rng));
+        }
+
+        // Merge the two sketches
+        sketch1.merge(&sketch2);
+
+        // Compare quantiles
+        let merged_cdf = sketch1.cdf();
+        let reference_cdf = reference_sketch.cdf();
+
+        for &q in &[0.1, 0.25, 0.5, 0.75, 0.9] {
+            let merged_val = merged_cdf.query(q);
+            let reference_val = reference_cdf.query(q);
+            let error = ((merged_val - reference_val) as f64).abs() / (reference_val as f64).abs();
+
+            println!(
+                "Quantile {}: merged={}, reference={}, error={}",
+                q, merged_val, reference_val, error
+            );
+            assert!(error < 0.1, "Error at quantile {} too large: {}", q, error);
+        }
+    }
+
+    #[test]
+    fn test_merge_with_duplicates() {
+        println!("\n=== Testing merge with duplicate values ===");
+
+        let mut sketch1 = Sketch::new(50);
+        let mut sketch2 = Sketch::new(50);
+
+        // Both sketches have the same values
+        for _ in 0..1000 {
+            sketch1.update(1.0);
+            sketch1.update(2.0);
+            sketch1.update(3.0);
+        }
+
+        for _ in 0..1000 {
+            sketch2.update(1.0);
+            sketch2.update(2.0);
+            sketch2.update(3.0);
+        }
+
+        sketch1.merge(&sketch2);
+        assert_eq!(sketch1.count(), 6000, "Should have 6000 total items");
+
+        let cdf = sketch1.cdf();
+        let median = cdf.query(0.5);
+        assert_eq!(median, 2.0, "Median should be 2.0");
+    }
+
+    #[test]
+    fn test_merge_different_types() {
+        // Test merging String sketches
+        println!("\n=== Testing merge with String type ===");
+        let mut string_sketch1 = Sketch::<String>::new(50);
+        let mut string_sketch2 = Sketch::<String>::new(50);
+
+        for i in 0..100 {
+            string_sketch1.update(format!("item_{}", i));
+        }
+        for i in 100..200 {
+            string_sketch2.update(format!("item_{}", i));
+        }
+
+        string_sketch1.merge(&string_sketch2);
+        assert_eq!(string_sketch1.count(), 200);
+
+        // Test merging integer sketches
+        println!("\n=== Testing merge with i32 type ===");
+        let mut int_sketch1 = Sketch::<i32>::new(50);
+        let mut int_sketch2 = Sketch::<i32>::new(50);
+
+        for i in 0..500 {
+            int_sketch1.update(i);
+        }
+        for i in 500..1000 {
+            int_sketch2.update(i);
+        }
+
+        int_sketch1.merge(&int_sketch2);
+        assert_eq!(int_sketch1.count(), 1000);
+
+        let cdf = int_sketch1.cdf();
+        let median = cdf.query(0.5);
+        assert!(
+            median >= 450 && median <= 550,
+            "Median should be around 500"
+        );
+    }
+
+    #[test]
+    fn test_merge_stress_test() {
+        println!("\n=== Stress test: merging many large sketches ===");
+
+        let mut base = Sketch::new(200);
+        let mut expected_count = 0;
+
+        // Merge 100 sketches each with 1000 items
+        for batch in 0..100 {
+            let mut batch_sketch = Sketch::new(200);
+            for i in 0..1000 {
+                batch_sketch.update((batch * 1000 + i) as f64);
+            }
+            expected_count += 1000;
+            base.merge(&batch_sketch);
+
+            // Verify count is correct after each merge
+            assert_eq!(
+                base.count(),
+                expected_count,
+                "Count mismatch after batch {}",
+                batch
+            );
+        }
+
+        // Verify final statistics
+        let cdf = base.cdf();
+        let median = cdf.query(0.5);
+        assert!(
+            (median - 50000.0).abs() < 1000.0,
+            "Median should be around 50000, got {}",
+            median
+        );
+
+        // Check memory usage is still bounded
+        let total_stored: usize = base.compactors.iter().map(|c| c.len()).sum();
+        let expected_max = (200.0 * (base.compactors.len() as f64) * 2.0) as usize;
+        assert!(
+            total_stored < expected_max,
+            "Memory usage {} exceeds expected bound {}",
+            total_stored,
+            expected_max
+        );
+    }
+
+    #[test]
+    fn test_merge_edge_cases() {
+        println!("\n=== Testing merge edge cases ===");
+
+        // Test self-merge (merge a sketch with its clone)
+        let mut sketch = Sketch::new(100);
+        for i in 0..1000 {
+            sketch.update(i as f64);
+        }
+
+        let clone = sketch.clone();
+        let count_before = sketch.count();
+        sketch.merge(&clone);
+
+        assert_eq!(
+            sketch.count(),
+            count_before * 2,
+            "Self-merge should double the count"
+        );
+
+        // Test merging sketches with very different sizes
+        let mut tiny = Sketch::new(10);
+        let mut huge = Sketch::new(500);
+
+        tiny.update(1.0);
+        for i in 0..100000 {
+            huge.update(i as f64);
+        }
+
+        tiny.merge(&huge);
+        assert!(
+            tiny.count() > 100000,
+            "Tiny sketch should contain huge sketch's data"
+        );
+
+        // Test merge with extreme values
+        let mut sketch1 = Sketch::new(50);
+        let mut sketch2 = Sketch::new(50);
+
+        sketch1.update(f64::MIN);
+        sketch1.update(f64::MAX);
+        sketch1.update(0.0);
+
+        sketch2.update(f64::NEG_INFINITY);
+        sketch2.update(f64::INFINITY);
+        sketch2.update(f64::NAN);
+
+        sketch1.merge(&sketch2);
+        assert_eq!(sketch1.count(), 6, "Should handle extreme values");
     }
 }
